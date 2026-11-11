@@ -1,0 +1,213 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PerfilUsuario {
+  ADMIN_GERAL
+  ADMIN_ESCOLA
+  GESTAO_ESCOLAR
+  ESTOQUE
+  COZINHA
+}
+
+enum StatusEscola {
+  ATIVA
+  INATIVA
+}
+
+enum TipoEvidencia {
+  NOTA_FISCAL
+  ALIMENTO_RECEBIDO
+}
+
+model Escola {
+  id                 String        @id @default(uuid())
+  nome               String
+  mantenedora        String?
+  codigoInep         String?       @unique
+  cnpj               String?       @unique
+  endereco           String
+  municipio          String
+  estado             String        @default("BR")
+  responsavel        String
+  telefone           String
+  emailInstitucional String        @unique
+  status             StatusEscola  @default(ATIVA)
+  criadoEm           DateTime      @default(now())
+  
+  usuarios           Usuario[]
+  produtos           Produto[]
+  recebimentos       Recebimento[]
+  inventarios        Inventario[]
+}
+
+model Usuario {
+  id                      String                @id @default(uuid())
+  escolaId                String?
+  escola                  Escola?               @relation(fields: [escolaId], references: [id])
+  nome                    String
+  email                   String                @unique
+  senhaHash               String
+  perfil                  PerfilUsuario         @default(ESTOQUE)
+  ativo                   Boolean               @default(true)
+  primeiroAcesso          Boolean               @default(true)
+  criadoEm                DateTime              @default(now())
+  
+  recebimentosLancados    Recebimento[]         @relation("LancadoPor")
+  movimentacoes           MovimentacaoEstoque[]
+  retiradasLancadas       RetiradaCozinha[]
+  inventarios             Inventario[]
+  auditorias              AuditoriaLog[]
+}
+
+model Categoria {
+  id       String    @id @default(uuid())
+  nome     String    @unique
+  produtos Produto[]
+}
+
+model UnidadeMedida {
+  id       String    @id @default(uuid())
+  nome     String
+  sigla    String    @unique
+  produtos Produto[]
+}
+
+model Produto {
+  id                 String        @id @default(uuid())
+  escolaId           String
+  escola             Escola        @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+  categoriaId        String
+  categoria          Categoria     @relation(fields: [categoriaId], references: [id])
+  unidadeMedidaId    String
+  unidadeMedida      UnidadeMedida @relation(fields: [unidadeMedidaId], references: [id])
+  nome               String
+  descricao          String?
+  quantidadeMinima   Decimal       @default(0)
+  localArmazenamento String
+  status             String        @default("ATIVO")
+  criadoEm           DateTime      @default(now())
+  
+  lotes              Lote[]
+}
+
+model Fornecedor {
+  id           String        @id @default(uuid())
+  nomeRazao    String
+  cnpj         String?
+  telefone     String?
+  recebimentos Recebimento[]
+}
+
+model Recebimento {
+  id                       String                   @id @default(uuid())
+  escolaId                 String
+  escola                   Escola                   @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+  fornecedorId             String
+  fornecedor               Fornecedor               @relation(fields: [fornecedorId], references: [id])
+  notaFiscal               String
+  dataRecebimento          DateTime                 @default(now())
+  
+  responsavelFisico        String                   // Nome do responsável que recebeu fisicamente na entrega
+  responsavelLancamentoId String
+  responsavelLancamento   Usuario                  @relation("LancadoPor", fields: [responsavelLancamentoId], references: [id])
+  
+  observacoes              String?
+  status                   String                   @default("CONFIRMADO")
+  
+  comprovanteNotaIsento    Boolean                  @default(false)
+  comprovanteAlimentosIsento Boolean                @default(false)
+  justificativaExcecao     String?
+  autorizadoPorId          String?
+  
+  lotes                    Lote[]
+  comprovantes             ComprovanteRecebimento[]
+}
+
+model ComprovanteRecebimento {
+  id             String        @id @default(uuid())
+  recebimentoId  String
+  recebimento    Recebimento   @relation(fields: [recebimentoId], references: [id], onDelete: Cascade)
+  tipoEvidencia  TipoEvidencia @default(NOTA_FISCAL) // NOTA_FISCAL ou ALIMENTO_RECEBIDO
+  urlFoto        String
+  nomeArquivo    String
+  tamanhoBytes   Int
+  mimeType       String
+  ordemPagina    Int           @default(1)
+  criadoEm       DateTime      @default(now())
+}
+
+model Lote {
+  id                 String                @id @default(uuid())
+  produtoId          String
+  produto            Produto               @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+  recebimentoId      String
+  recebimento        Recebimento           @relation(fields: [recebimentoId], references: [id])
+  numeroLote         String
+  dataValidade       DateTime
+  quantidadeInicial  Decimal
+  quantidadeAtual    Decimal
+  localArmazenamento String
+  precoUnitario      Decimal?              @default(0)
+  criadoEm           DateTime              @default(now())
+
+  movimentacoes      MovimentacaoEstoque[]
+  retiradas          RetiradaCozinha[]
+}
+
+model MovimentacaoEstoque {
+  id               String   @id @default(uuid())
+  loteId           String
+  lote             Lote     @relation(fields: [loteId], references: [id])
+  tipoMovimentacao String
+  quantidade       Decimal
+  dataHorario      DateTime @default(now())
+  usuarioId        String
+  usuario          Usuario  @relation(fields: [usuarioId], references: [id])
+  justificativa    String?
+}
+
+model RetiradaCozinha {
+  id                     String    @id @default(uuid())
+  loteId                 String
+  lote                   Lote      @relation(fields: [loteId], references: [id])
+  quantidadeRetirada     Decimal
+  quantidadeUtilizada    Decimal?
+  quantidadeDevolvida    Decimal?
+  quantidadeDesperdicada Decimal?
+  motivoDesperdicio      String?
+  retiradoPorNome        String
+  lancadoPorId           String
+  lancadoPor             Usuario   @relation(fields: [lancadoPorId], references: [id])
+  dataRetirada           DateTime  @default(now())
+  observacoes            String?
+}
+
+model Inventario {
+  id            String    @id @default(uuid())
+  escolaId      String
+  escola        Escola    @relation(fields: [escolaId], references: [id], onDelete: Cascade)
+  tipo          String
+  dataInicio    DateTime  @default(now())
+  dataFim       DateTime?
+  responsavelId String
+  responsavel   Usuario   @relation(fields: [responsavelId], references: [id])
+  status        String    @default("EM_ANDAMENTO")
+}
+
+model AuditoriaLog {
+  id            String   @id @default(uuid())
+  usuarioId     String
+  usuario       Usuario  @relation(fields: [usuarioId], references: [id])
+  acao          String
+  tabelaAfetada String
+  registroId    String
+  dadosAnteriores Json?
+  dadosNovos    Json?
+  dataHorario   DateTime @default(now())
+}
